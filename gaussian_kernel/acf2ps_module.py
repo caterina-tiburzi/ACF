@@ -28,7 +28,7 @@ def acf2ps(lags,acf,lc):
 	
 	binsize=data['lags'][1]-data['lags'][0]
 	lc = int(lc/binsize)
-	triangular = np.hstack((1-np.arange(0.,lc)/float(lc),np.zeros(len(data)-lc)))#signal.triang(len(data))
+	triangular = np.hstack((1-np.arange(0.,lc)/float(lc),np.zeros(len(data)-lc)))#Here we do window carpetring, by multiplying the ACF by a triangular window to avoid the overshootings in the latest lags (the boundary is defined by lc). Note that then, to minimize the aliasing, set to zero the remaining part of the acf, for lags>lc
 		
 	corrected_acf = acf['acf'] * triangular
 	
@@ -40,11 +40,13 @@ def acf2ps(lags,acf,lc):
 	corrected_acf_r =  (np.fliplr([corrected_acf])[0])[:-1]#rearrange the ACF as the FFT algorithm likes. If given in this way, the FFT algorithm will recognize it as a real, symmetric fct and it will give in output a real spectrum. The imaginary part will be minimal
 	acf = np.hstack((corrected_acf,corrected_acf_r))
 	
+        dt = np.mean(np.diff(lags['lags']))#spacing between the bins of the ACF
+
 	ps = np.real(np.fft.fft(acf))*dt*2# multiplication by dt to keep into account the trapezoidal law, and by 2 to keep into account the negative part of the spectrum that we will discard later
 	posps = pos_freq(ps)
 
-        bins = data['lags']
-        dt = np.mean(np.diff(bins))#spacing between the bins of the ACF
+        
+        
         fr = np.fft.fftfreq(acf.shape[-1],d=dt)
         posfr = pos_freq(fr)
 

@@ -4,10 +4,11 @@ import numpy as np
 import os, argparse, math, sys
 import matplotlib.pyplot as plt
 from sklearn import preprocessing
+import numpy.lib.recfunctions as rfn
 
 def acf_slotting_gaussian(t,y,ye):
     
-    plt.errorbar(t,y,yerr=ye'k.')
+    plt.errorbar(t,y,yerr=ye,fmt='k.')
     plt.xlabel("x")
     plt.ylabel("y")
     plt.show()
@@ -28,7 +29,7 @@ def acf_slotting_gaussian(t,y,ye):
 	
     mean_step = np.ediff1d(tt['time']).mean(axis=0)#note that here I am not following what is mentioned in 2.1 of Rehfeld -- where they perform a rescaling of the time span. This is because I want to end up with the real lags
 	
-    tau = 3*mean_step #this is 3 times more than what suggested by Rehfeld
+    tau = 2*mean_step #this is 3 times more than what suggested by Rehfeld
     h = tau/4.
 	
     print("Bin length:",tau)
@@ -37,8 +38,8 @@ def acf_slotting_gaussian(t,y,ye):
     
     deltat, bins = [], []
     
-    f = open("%s_weights.dat"%(infile),"w")
-    g = open("%s_weights_no0.dat"%(infile),"w")
+    f = open("weights.dat","w")
+    g = open("weights_no0.dat","w")
 	
     for i in range(len(tt['value'])):
         for j in range(i,len(tt['value'])):
@@ -86,4 +87,79 @@ def acf_slotting_gaussian(t,y,ye):
     f.close()#If one wants the non-normalized ACF, these files can be used to multiply the ACF values
     g.close()
     
+    acf = np.core.records.fromrecords(acf, names='acf',formats='f8')
+    acf_n0 = np.core.records.fromrecords(acf_n0, names='acf',formats='f8')
+    bins = np.core.records.fromrecords(bins, names='lags',formats='f8')
+
     return(np.asarray(acf),np.asarray(acf_n0),bins)
+
+
+
+
+def acf_slotting_rectangular(t,y,ye):
+    
+    plt.errorbar(t,y,yerr=ye,fmt='k.')
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.show()
+
+
+    tt_r = np.vstack((t,y,ye))
+    tt = np.core.records.fromarrays(tt_r, names='time,value,erva', formats = 'f8,f8,f8')
+	    
+	
+    #Normalization of the time series to have mean 0
+    
+    meandm=np.sum(tt['value']/tt['erva']**2)/np.sum(1./tt['erva']**2)
+    tt['value'] = tt['value'] - meandm
+
+    mean_step = np.ediff1d(tt['time']).mean(axis=0)# we are going to base the sampling of the ACF on the mean sampling time of the time series
+	
+    tau = 2*mean_step #i.e., 3 times more the mean_step (MAKE THIS OPTIONAL)
+    tobs = tt['time'][-1]-tt['time'][0]
+	
+    print("Bin length:",tau)
+
+    acv_ls, tcv_ls, va_ls = [], [], []
+
+    for kg in range(0,len(tt)):#generate the cross-products
+        for lg in range(kg,len(tt)):
+            acv_ls.append((tt['value'][kg])*(tt['value'][lg]))
+            tcv_ls.append(np.absolute(tt['time'][kg]-tt['time'][lg]))
+            va_ls.append(tt['erva'][kg]**2+tt['erva'][lg]**2)
+
+
+    tcv = np.core.records.fromrecords(tcv_ls, names='tcv',formats='f8')
+    acv = np.core.records.fromrecords(acv_ls, names='acv',formats='f8')
+    va = np.core.records.fromrecords(va_ls, names='va',formats='f8')
+
+    cp = tcv
+
+    cp = rfn.append_fields(cp, ['acv','va'], [acv['acv'],va['va']], usemask = False)
+    cp.sort(order='tcv')
+    binsize = tau
+
+    cp_wn = cp[cp['tcv']==0]
+    aczero = np.mean(cp_wn['acv']) #this is an estimate of the total variance
+
+    aca, acaw, lags = [], [], []
+
+    for k in range(0,int(np.floor(tobs/binsize))):
+        edge=binsize/2
+        center=k*binsize
+        lags.append(center)
+        if k==0:
+            bincp = cp[cp['tcv']<edge]
+            bincp = bincp[bincp['tcv']>0]
+        else:
+            bincp = cp[cp['tcv']<center+edge]
+            bincp = bincp[bincp['tcv']>center-edge]
+        aca.append(np.mean(bincp['acv']))    
+        acaw.append(np.sum(bincp['acv']/bincp['va'])/np.sum(1./bincp['va']))
+        
+    lags = np.core.records.fromrecords(lags, names='lags',formats='f8')
+    acaw = np.core.records.fromrecords(acaw, names='acf',formats='f8')
+    aca = np.core.records.fromrecords(aca, names='va',formats='f8')
+
+
+    return(acaw,lags)
